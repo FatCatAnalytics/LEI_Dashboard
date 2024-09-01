@@ -1,4 +1,3 @@
-import streamlit as st
 import json
 import os
 import asyncio
@@ -13,62 +12,88 @@ from pyvis.network import Network
 logging.basicConfig(level=logging.INFO)
 
 
-# Load existing JSON data from file
-def load_existing_json(file_path):
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            try:
-                data = json.load(f)
-                if isinstance(data, list):  # Ensure it's a list
-                    return data
-                else:
-                    st.error("Invalid data structure in JSON file. Expected a list.")
-                    return []
-            except json.JSONDecodeError:
-                st.error("Failed to decode JSON file.")
-                return []
+def save_data(extracted_data, json_data):
+    # Paths to the data files
+    json_data_file = 'Datasources/lei_data.json'
+    extracted_data_file_path = 'Datasources/extracted_data.csv'
+
+    # Load existing JSON data if the file exists
+    if os.path.exists(json_data_file):
+        with open(json_data_file, 'r') as f:
+            existing_json_data = json.load(f)
     else:
-        return []
+        existing_json_data = []
 
+    # Ensure json_data is a dictionary
+    if not isinstance(json_data, dict):
+        raise ValueError("json_data must be a dictionary")
 
-# Save the processed hierarchies to a file
-def save_hierarchies_to_file(hierarchies, file_path='Data Sources/hierarchies.json'):
-    if os.path.exists(file_path):
-        with open(file_path, 'r') as f:
-            existing_data = json.load(f)
+    # Convert json_data to a list of dictionaries
+    json_data_list = [{lei: details} for lei, details in json_data.items()]
+
+    # Extract LEIs from the new json_data
+    new_leis = set(json_data.keys())
+
+    # Extract LEIs from the existing json_data
+    existing_leis = {list(entry.keys())[0] for entry in existing_json_data}
+
+    # Filter out LEIs that already exist in the existing JSON data
+    filtered_json_data_list = [entry for entry in json_data_list if list(entry.keys())[0] not in existing_leis]
+
+    # Append new data to the json_data_file
+    if filtered_json_data_list:
+        existing_json_data.extend(filtered_json_data_list)
+        with open(json_data_file, 'w') as f:
+            json.dump(existing_json_data, f)
+        logging.info(f"Appended {len(filtered_json_data_list)} new LEIs to the JSON file.")
     else:
-        existing_data = {}
+        logging.info("No new LEIs to add.")
 
-    # Flatten the hierarchies dictionary
-    for lei, data in hierarchies.items():
-        if isinstance(data, dict) and lei in data:
-            existing_data[lei] = data[lei]
+    # Save only new extracted_data to the CSV file
+    if os.path.exists(extracted_data_file_path):
+        existing_extracted_data = pd.read_csv(extracted_data_file_path)
+        new_extracted_data = extracted_data[~extracted_data['Level_1_ID'].isin(existing_extracted_data['Level_1_ID'])]
+        if not new_extracted_data.empty:
+            combined_data = pd.concat([existing_extracted_data, new_extracted_data])
+            combined_data.to_csv(extracted_data_file_path, index=False)
+            logging.info(f"Appended {len(new_extracted_data)} new LEIs to the CSV file.")
         else:
-            existing_data[lei] = data
-
-    # Save the updated data back to the file
-    with open(file_path, 'w') as f:
-        json.dump(existing_data, f, indent=4)
-
+            logging.info("No new LEIs to add to the CSV file.")
+    else:
+        extracted_data.to_csv(extracted_data_file_path, index=False)
+        logging.info("Extracted data saved to new CSV file.")
+    
 
 # Load previously saved hierarchies
-def load_saved_hierarchies(file_path='Data Source/hierarchies.json'):
+def load_saved_hierarchies(file_path='Datasources/lei_data.json'):
     if os.path.exists(file_path):
         with open(file_path, 'r') as f:
             logging.info(f"Loading cached hierarchies from {file_path}")
-            return json.load(f)
+            data = json.load(f)
+            
+            if isinstance(data, list):
+                all_hierarchies = {}
+                for item in data:
+                    if isinstance(item, dict):
+                        all_hierarchies.update(item)
+                    else:
+                        logging.warning(f"Expected a dictionary but got {type(item)} in the list. Skipping item.")
+                return all_hierarchies
+            else:
+                logging.warning(f"Expected a list but got {type(data)}. Returning an empty dictionary.")
+                return {}
     else:
+        logging.warning(f"File {file_path} does not exist. Returning an empty dictionary.")
         return {}
-
 
 async def fetch(session, url):
     try:
         async with session.get(url) as response:
             logging.info(f"Fetching URL: {url} - Status: {response.status}")
-            if response.status == 429:  # Too Many Requests
+            if response.status == 429:
                 logging.warning(f"Rate limit exceeded. Waiting for 10 seconds before retrying...")
                 await asyncio.sleep(10)
-                return await fetch(session, url)  # Retry the request
+                return await fetch(session, url)
             response.raise_for_status()
             return await response.json()
     except aiohttp.ClientError as e:
@@ -142,17 +167,14 @@ async def process_single_lei(session, lei, all_hierarchies):
 
 
 async def process_leis(lei_list, batch_size=10, delay=15):
-    all_hierarchies = load_saved_hierarchies()  # Load previously saved hierarchies
+    all_hierarchies = load_saved_hierarchies()
+    keys = all_hierarchies.keys()
 
-    leis_to_process = [lei for lei in lei_list if lei not in all_hierarchies]  # Only process new LEIs
+
+    leis_to_process = [lei for lei in lei_list if lei not in all_hierarchies]
     if not leis_to_process:
         logging.info("All requested LEIs found in cache. No processing needed.")
-        st.write("Data loaded from database.")
-
-    total_leis = len(leis_to_process)
-    leis_progress_bar = st.progress(0)
-    lei_progress_text = st.empty()
-
+        return all_hierarchies
 
     async with aiohttp.ClientSession() as session:
         for i in range(0, len(leis_to_process), batch_size):
@@ -160,10 +182,6 @@ async def process_leis(lei_list, batch_size=10, delay=15):
             tasks = [process_single_lei(session, lei, all_hierarchies) for lei in batch]
             await asyncio.gather(*tasks)
             logging.info(f"Processed {i + len(batch)}/{len(leis_to_process)} LEIs")
-
-            # Update the progress bar and text
-            leis_progress_bar.progress((i + len(batch)) / total_leis)
-            lei_progress_text.text(f"Processed {i + len(batch)}/{total_leis} LEIs")
 
             # Introduce a small delay to ensure Streamlit has time to render the UI updates
             await asyncio.sleep(0.1)
@@ -206,20 +224,18 @@ def flatten_hierarchy(data, path=[]):
 
 
 def process_uploaded_file(uploaded_file):
-    # If the file is Excel
+
     if uploaded_file.name.endswith('.xlsx'):
-        # Load the Excel file
+
         xls = pd.ExcelFile(uploaded_file)
-        # Allow the user to select a sheet
-        sheet_name = st.selectbox("Select a sheet", xls.sheet_names)
-        # Load the selected sheet into a DataFrame
+
+        sheet_name =  xls.sheet_names
+
         df = pd.read_excel(uploaded_file, sheet_name=sheet_name)
     else:
-        # Load the CSV file into a DataFrame
-        df = pd.read_csv(uploaded_file)
 
-    # Allow the user to select the column containing LEIs
-    column_name = st.selectbox("Select the column containing LEIs", df.columns)
+        df = pd.read_csv(uploaded_file)
+        column_name = df.columns
 
     return df[column_name].tolist()
 
@@ -235,7 +251,8 @@ def generate_interactive_network(df, entity_name):
 
         # Set the parent node color to light red
         if parent not in G:
-            G.add_node(parent, label=f"{parent_name}\n({parent})", color="lightcoral")
+            node_color = "lightcoral" if parent_name != entity_name else "green"
+            G.add_node(parent, label=f"{parent_name}\n({parent})", color=node_color)
 
         for level in range(2, 10):  # Adjust this range if more levels exist
             child = row.get(f'Level_{level}_ID')
@@ -244,8 +261,10 @@ def generate_interactive_network(df, entity_name):
             if pd.notna(child):  # Check if the child ID is not NaN
                 G.add_edge(parent, child)
 
-                # Set the node color based on the level
-                if level == 2:
+                # Set the node color based on the level and entity name
+                if child_name == entity_name:
+                    node_color = "green"
+                elif level == 2:
                     node_color = "blue"  # Next level to blue
                 else:
                     node_color = "lightblue"  # Subsequent levels to light blue
@@ -284,7 +303,16 @@ def generate_interactive_network(df, entity_name):
           "inherit": false,
           "opacity": 1.0
         },
-        "width": 1
+        "width": 1,
+        "arrows": {
+          "to": {
+            "enabled": true,
+            "scaleFactor": 1
+          },
+          "from": {
+            "enabled": false
+          }
+        }
       },
       "physics": {
         "enabled": true,
@@ -310,11 +338,11 @@ def generate_interactive_network(df, entity_name):
             with open(tmp_file.name, 'r') as f:
                 html_content = f.read()
 
-            # Add the title at the beginning of the body section
-            html_content = html_content.replace(
-                '<body>',
-                f'<body><h2 style="text-align: center;">{title}</h2>'
-            )
+            # Comment out the title injection
+            # html_content = html_content.replace(
+            #     '<body>',
+            #     f'<body><h2 style="text-align: center;">{title}</h2>'
+            # )
 
             # Remove the border and shadow from the overall frame
             html_content = html_content.replace(
@@ -329,22 +357,10 @@ def generate_interactive_network(df, entity_name):
             return tmp_file.name
 
     except Exception as e:
-        st.error(f"Failed to generate network HTML: {e}")
+        logging.error(f"Failed to generate network HTML: {e}")
         return None
 
-
-def aggregate_hierarchy_data(df, output_file_path='Data Sources/aggregated_hierarchy.csv'):
-    """
-    Aggregates all columns containing 'ID', 'Name', and 'SP_Global',
-    appends to an existing CSV file, removes duplicates, and saves the result.
-
-    Parameters:
-    df (pd.DataFrame): The input DataFrame with hierarchical columns.
-    output_file_path (str): The file path where the resulting CSV will be saved.
-
-    Returns:
-    None
-    """
+def aggregate_hierarchy_data(df, output_file_path='Datasources/aggregated_hierarchy.csv'):
     # Identify columns that contain 'ID', 'Name', and 'SP_Global'
     id_columns = [col for col in df.columns if 'ID' in col]
     name_columns = [col for col in df.columns if 'Name' in col]
@@ -371,13 +387,13 @@ def aggregate_hierarchy_data(df, output_file_path='Data Sources/aggregated_hiera
     else:
         # If the file does not exist, the combined DataFrame is just the new data
         combined_df = new_data_df
+        
 
-    # Remove duplicates across the entire DataFrame
-    final_df = combined_df.drop_duplicates().reset_index(drop=True)
+    # Remove duplicates across the entire DataFrame based on 'ID', 'Name', and 'SP_Global'
+    final_df = combined_df.drop_duplicates(subset=["ID", "Name", "SP_Global"]).reset_index(drop=True)
 
     # Save the final DataFrame to a CSV file, overwriting the existing file
     final_df.to_csv(output_file_path, index=False)
-
 
 # Process a subset of the LEI codes
 async def main(lei_list):
@@ -401,5 +417,3 @@ async def main(lei_list):
         logging.error(f"Error in main processing: {e}")
         # Ensure that None is returned if an error occurs
         return None, None
-
-
