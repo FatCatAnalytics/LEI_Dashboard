@@ -86,6 +86,7 @@ def load_saved_hierarchies(file_path='Datasources/lei_data.json'):
         logging.warning(f"File {file_path} does not exist. Returning an empty dictionary.")
         return {}
 
+
 async def fetch(session, url):
     try:
         async with session.get(url) as response:
