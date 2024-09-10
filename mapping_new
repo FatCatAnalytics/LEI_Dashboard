@@ -19,7 +19,7 @@ TIME_WINDOW = 60  # seconds
 requests_made = 0
 start_time = time.time()
 
-# Asynchronous function to fetch data from the API with retry mechanism
+# Asynchronous function to fetch data from the API with pagination support
 async def fetch_company_data(session, name, retries=3, backoff_factor=2):
     global requests_made, start_time
 
@@ -34,28 +34,47 @@ async def fetch_company_data(session, name, retries=3, backoff_factor=2):
         requests_made = 0
         start_time = time.time()
 
-    encoded_company_name = urllib.parse.quote(name)
-    url = f"https://api.gleif.org/api/v1/lei-records?page[size]=50&page[number]=1&filter[entity.names]={encoded_company_name}"
+    # Initialize variables for pagination
+    page_number = 1
+    all_data = []
 
-    for attempt in range(retries):
-        try:
-            async with session.get(url) as response:
-                logging.info(f"Fetching data for {name} - Status: {response.status}")
-                if response.status == 429:
-                    logging.warning(f"Rate limit exceeded for {name}. Pausing for 60 seconds...")
-                    await asyncio.sleep(60)  # Pause for 60 seconds if rate limited
-                    continue
-                response.raise_for_status()
-                data = await response.json()
-                
-                # Increment the request counter after a successful request
-                requests_made += 1
-                return name, data
-        except aiohttp.ClientError as e:
-            logging.error(f"Error fetching data for {name}: {e}")
-            if attempt == retries - 1:
-                return name, None
-            await asyncio.sleep(backoff_factor * (2 ** attempt))
+    encoded_company_name = urllib.parse.quote(name)
+
+    while True:
+        url = f"https://api.gleif.org/api/v1/lei-records?page[size]=50&page[number]={page_number}&filter[entity.names]={encoded_company_name}"
+
+        for attempt in range(retries):
+            try:
+                async with session.get(url) as response:
+                    logging.info(f"Fetching page {page_number} for {name} - Status: {response.status}")
+                    if response.status == 429:
+                        logging.warning(f"Rate limit exceeded for {name}. Pausing for 60 seconds...")
+                        await asyncio.sleep(60)  # Pause for 60 seconds if rate limited
+                        continue
+                    response.raise_for_status()
+                    data = await response.json()
+
+                    # Increment the request counter after a successful request
+                    requests_made += 1
+
+                    if data and 'data' in data:
+                        all_data.extend(data['data'])  # Collect data from all pages
+                    else:
+                        logging.warning(f"No data found on page {page_number} for {name}")
+                        return name, None
+
+                    # Check if there are more pages
+                    if not data.get('links', {}).get('next'):
+                        return name, {'data': all_data}  # Return all collected data
+
+                    # Move to the next page
+                    page_number += 1
+
+            except aiohttp.ClientError as e:
+                logging.error(f"Error fetching data for {name}: {e}")
+                if attempt == retries - 1:
+                    return name, None
+                await asyncio.sleep(backoff_factor * (2 ** attempt))
 
     return name, None
 
