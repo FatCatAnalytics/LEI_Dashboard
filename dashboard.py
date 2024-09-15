@@ -1,7 +1,7 @@
 import streamlit as st
 st.set_page_config(layout="wide")
-st.markdown('<h1 style="font-size:24px;">Coalition Greenwich Corporate Hierarchy Dashboard</h1>', unsafe_allow_html=True)
-st.write('This dashboard is a prototype for the Coalition Greenwich Corporate Hierarchy Dashboard.')
+st.markdown('<h1 style="font-size:24px;">FatCat Analytics Demo Corporate Hierarchy Dashboard</h1>', unsafe_allow_html=True)
+st.write('This dashboard is a prototype for the FatCat Analytics Corporate Hierarchy Dashboard.')
 
 home = st.Page("home.py", title="Information", icon=":material/home:")
 upload_lei = st.Page("upload_lei.py", title="LEI Codes", icon=":material/update:")
