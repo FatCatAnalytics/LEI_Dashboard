@@ -3,7 +3,6 @@ import pandas as pd
 import asyncio
 from get_hierarchy import main,save_data, aggregate_hierarchy_data
 
-
 st.markdown('<h2 style="font-size:16px;">Upload Legal Entity Identifier Data</h2>', unsafe_allow_html=True)
 
 # Option 1: User inserts comma-separated LEI codes
