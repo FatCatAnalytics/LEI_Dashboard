@@ -2,8 +2,17 @@ import streamlit as st
 import pandas as pd
 import asyncio
 from get_hierarchy import main,save_data, aggregate_hierarchy_data
-
+st.markdown("""
+<p style="font-size:10px;">
+This tool will allow to search for companies using their LEI codes and fetch all related LEI codes in a
+hierarchical structure. The tool will also allow to upload a file containing LEI codes to fetch similar data
+for multiple companies at once. The data fetched can be saved and viewed in a hierarchical structure.
+</p>
+""", unsafe_allow_html=True)
 st.markdown('<h2 style="font-size:16px;">Upload Legal Entity Identifier Data</h2>', unsafe_allow_html=True)
+
+
+
 
 # Option 1: User inserts comma-separated LEI codes
 lei_codes = st.text_input("Enter comma-separated LEI codes")

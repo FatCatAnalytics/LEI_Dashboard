@@ -1,6 +1,12 @@
 import streamlit as st
+
 st.set_page_config(layout="wide")
+st.image("Streamlit.png", width=500)
+
+
+
 st.markdown('<h1 style="font-size:24px;">FatCat Analytics Demo Corporate Hierarchy Dashboard</h1>', unsafe_allow_html=True)
+
 
 home = st.Page("home.py", title="Information", icon=":material/home:")
 upload_lei = st.Page("upload_lei.py", title="LEI Codes", icon=":material/update:")

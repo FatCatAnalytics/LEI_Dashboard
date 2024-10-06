@@ -113,7 +113,15 @@ def process_results(results):
     df = pd.DataFrame(records)
     return df
 
-
+st.markdown("""
+<p style="font-size:10px;">
+This tool will allow to search for companies using their names and fetch the details from various sources to
+bring in the companies that are similar to the search query. Once the data is fetched, the tool will calculate
+the similarity score between the search query and the matched company names. The similarity score is calculated
+using the SentenceTransformer model and cosine similarity. The tool will also refine the similarity score based
+on the presence of certain keywords in the company name and the country of the company.
+</p>
+""", unsafe_allow_html=True)
 # Input area for company names
 company_names_input = st.text_input("Enter company names split by comma")
 
@@ -133,6 +141,7 @@ if st.button("Fetch and Match"):
         # Sort the DataFrame by similarity score in descending order
         df_sorted = df.sort_values(by="Similarity Score", ascending=False)
 
-        # Display the sorted results in Streamlit
-        st.write("### Matched Results")
-        st.dataframe(df_sorted)
+    # Display the sorted results in Streamlit
+    st.write("### Matched Results")
+    st.dataframe(df_sorted)
+
